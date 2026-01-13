@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../../../Arduino/esp32_controller.ino.ino"
+		},
+		{
+			"name": "Main",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
