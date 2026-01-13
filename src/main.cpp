@@ -15,6 +15,9 @@ const char* imgKey="current-panel.jpg";
 /************ Receiver ESP32-CAM MAC ************/
 uint8_t camMAC[] = {0x84,0x1F,0xE8,0x68,0x8F,0xA4};
 
+/************ Relay ESP32 MAC ************/
+uint8_t relayMAC[] = {0x88,0x57,0x21,0x78,0xE7,0x80};
+
 /************ MQTT ************/
 const char* DEVICE_ID = "ESP32-Solar-Controller";
 const char* CONTROL_TOPIC = "solar/panel/control";
@@ -52,6 +55,7 @@ bool systemState = false;
 bool waitingForUpload = false;
 unsigned long captureStartTime = 0;
 unsigned long lastTrigger = 0;
+unsigned long lastRelayHello = 0;
 const unsigned long triggerInterval = 15000;
 const unsigned long uploadTimeout = 50000;
 
@@ -108,6 +112,11 @@ void stepMotor(int delayUs) {
   digitalWrite(STEP_PIN, LOW);
   delayMicroseconds(delayUs);
   stepCounter++;
+
+  // Send step update to relay ESP32
+  char stepMsg[32];
+  snprintf(stepMsg, sizeof(stepMsg), "STEP:%ld", stepCounter);
+  esp_now_send(relayMAC, (uint8_t*)stepMsg, strlen(stepMsg));
 }
 
 long calculateAccelSteps() {
@@ -288,6 +297,10 @@ void callInspectionAPI() {
     String response = http.getString();
     Serial.println(response);
 
+    // Send API response to relay ESP32
+    esp_now_send(relayMAC, (uint8_t*)response.c_str(), response.length());
+    Serial.println("📤 Sent API response to Relay ESP32");
+
     DynamicJsonDocument result(1024);
     if(!deserializeJson(result,response) && result.containsKey("result")){
       JsonObject res = result["result"];
@@ -443,10 +456,38 @@ void setup(){
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
+  
+  // Initialize ESP-NOW before WiFi connection (for sending status)
+  if(esp_now_init()==ESP_OK){
+    esp_now_register_recv_cb(onRecv);
+    
+    // Add camera peer
+    esp_now_peer_info_t camPeer={};
+    memcpy(camPeer.peer_addr,camMAC,6);
+    esp_now_add_peer(&camPeer);
+    
+    // Add relay peer
+    esp_now_peer_info_t relayPeer={};
+    memcpy(relayPeer.peer_addr,relayMAC,6);
+    esp_now_add_peer(&relayPeer);
+    
+    Serial.println("📡 ESP-NOW initialized (Camera + Relay)");
+  }
+
+  // Send STARTING_WIFI to relay ESP32 before WiFi connection
+  esp_now_send(relayMAC, (uint8_t*)"STARTING_WIFI", 13);
+  Serial.println("📤 Sent STARTING_WIFI to Relay ESP32");
+  delay(100);
+
   Serial.print("📡 WiFi");
   WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
   while(WiFi.status()!=WL_CONNECTED){ Serial.print("."); delay(300);}
   Serial.println(" ✔");
+  
+  // Send WiFi success message to relay ESP32
+  esp_now_send(relayMAC, (uint8_t*)"WIFI_CONNECTED", 15);
+  Serial.println("📤 Sent WIFI_CONNECTED to Relay ESP32");
+  delay(100);
 
   wifiClient.setCACert(AWS_ROOT_CA);
   wifiClient.setCertificate(DEVICE_CERT);
@@ -460,14 +501,6 @@ void setup(){
       Serial.println(" ✔");
       mqttClient.subscribe(CONTROL_TOPIC);
     } else { Serial.print("."); delay(1000);}
-  }
-
-  if(esp_now_init()==ESP_OK){
-    esp_now_register_recv_cb(onRecv);
-    esp_now_peer_info_t peer={};
-    memcpy(peer.peer_addr,camMAC,6);
-    esp_now_add_peer(&peer);
-    Serial.println("📡 ESP-NOW initialized");
   }
 
   if(shouldCallAPI){
@@ -497,6 +530,13 @@ void loop(){
     }
   }
   mqttClient.loop();
+
+  // Send HELLO to relay ESP32 every 1 second
+  if(millis() - lastRelayHello >= 1000){
+    lastRelayHello = millis();
+    esp_now_send(relayMAC, (uint8_t*)"HELLO", 6);
+    Serial.println("📤 Sent HELLO to Relay ESP32");
+  }
 
   // Only run if ON
   if(systemState){
