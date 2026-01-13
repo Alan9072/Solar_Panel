@@ -534,7 +534,7 @@ void loop(){
   // Send HELLO to relay ESP32 every 1 second
   if(millis() - lastRelayHello >= 1000){
     lastRelayHello = millis();
-    esp_now_send(relayMAC, (uint8_t*)"HELLO", 6);
+    esp_now_send(relayMAC, (uint8_t*)"HELLO", 5);
     Serial.println("📤 Sent HELLO to Relay ESP32");
   }
 
