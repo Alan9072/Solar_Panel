@@ -23,7 +23,7 @@ const char* MOTOR_TOPIC = "solar/panel/motor";
 const char* INSPECTION_TOPIC = "solar/panel/inspection";
 const char* ALERT_TOPIC = "solar/panel/alert";
 
-/************ MOTOR PINS ************/
+/************ MOTOR PINS *************/
 #define STEP_PIN 5
 #define DIR_PIN  6
 
